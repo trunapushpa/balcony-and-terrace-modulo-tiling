@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terrace & Balcony Tiling Planner</title>
+    <style>
+        :root {
+            --bg-app: #0f172a;
+            --bg-panel: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #10b981;
+            --accent-hover: #059669;
+            --border: #334155;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --canvas-bg: #ffffff;
+            --shortcut-bg: #334155;
+        }
+
+        body {
+            margin: 0; padding: 0; background-color: var(--bg-app);
+            color: var(--text-main); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex; height: 100vh; overflow: hidden;
+        }
+
+        .sidebar {
+            width: 360px; background-color: var(--bg-panel); border-right: 1px solid var(--border);
+            padding: 24px; display: flex; flex-direction: column; gap: 20px;
+            z-index: 10; box-shadow: 4px 0 15px rgba(0,0,0,0.2); box-sizing: border-box; overflow-y: auto;
+        }
+
+        /* Webkit Scrollbar for Sidebar */
+        .sidebar::-webkit-scrollbar { width: 8px; }
+        .sidebar::-webkit-scrollbar-track { background: var(--bg-panel); }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+        .canvas-container {
+            flex-grow: 1; display: flex; justify-content: center; align-items: center;
+            overflow: auto; background-image: radial-gradient(circle, #334155 1px, transparent 1px); background-size: 20px 20px; position: relative;
+        }
+
+        canvas {
+            background-color: var(--canvas-bg); box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            border-radius: 4px; cursor: crosshair; margin: 60px;
+        }
+
+        h2 { margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .space-selector { display: flex; background-color: rgba(0,0,0,0.2); padding: 6px; border-radius: 8px; border: 1px solid var(--border); }
+        .space-selector button { flex: 1; border: none; padding: 10px; border-radius: 6px; background: transparent; color: var(--text-muted); font-weight: 600; transition: all 0.2s; }
+        .space-selector button.active { background-color: var(--bg-panel); color: var(--text-main); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+
+        .row-group { display: flex; gap: 8px; }
+        .col-group { display: flex; flex-direction: column; gap: 8px; }
+
+        button {
+            background-color: transparent; color: var(--text-main); border: 1px solid var(--border);
+            padding: 10px 14px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; font-family: inherit;
+        }
+        .row-group button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;}
+        button:hover { background-color: rgba(255,255,255,0.05); border-color: #475569; }
+        button.active { background-color: rgba(16, 185, 129, 0.15); color: var(--accent); border-color: var(--accent); font-weight: 600; }
+        
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .inventory, .palette-box { background-color: rgba(0,0,0,0.15); padding: 16px; border-radius: 8px; border: 1px solid var(--border); }
+        .inventory-item { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; color: var(--text-muted); }
+        .inventory-item:last-child { margin-bottom: 0; }
+        .inventory-item strong { color: var(--text-main); font-size: 15px;}
+
+        .palette-item { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 6px; border: 1px solid transparent;}
+        .palette-item:hover { border-color: var(--accent); cursor: pointer; background: rgba(16, 185, 129, 0.1); }
+        .palette-item span { font-size: 13px; font-weight: 500; }
+        .palette-del { background: transparent; border: none; padding: 4px; color: var(--text-muted); }
+        .palette-del:hover { color: var(--danger); background: transparent; }
+
+        .clear-btn { background-color: var(--danger); color: white; border: none; margin-top: 10px; padding: 14px; font-weight: 600; }
+        .clear-btn:hover { background-color: var(--danger-hover); }
+
+        /* Help Button & Modal */
+        .help-btn {
+            position: fixed; bottom: 20px; right: 20px; width: 44px; height: 44px; border-radius: 50%;
+            background-color: var(--bg-panel); color: var(--accent); border: 2px solid var(--border);
+            font-size: 20px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 100;
+        }
+        .help-btn:hover { border-color: var(--accent); background-color: rgba(16, 185, 129, 0.1); }
+
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6);
+            display: none; justify-content: center; align-items: center; z-index: 200; backdrop-filter: blur(3px);
+        }
+        .modal {
+            background: var(--bg-panel); padding: 30px; border-radius: 12px; border: 1px solid var(--border);
+            width: 400px; max-width: 90%; box-shadow: 0 15px 40px rgba(0,0,0,0.5);
+        }
+        .modal h2 { font-size: 18px; margin-bottom: 20px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 10px;}
+        .shortcut-grid { display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-bottom: 20px; }
+        .shortcut-key { background: var(--shortcut-bg); padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 13px; color: #fff;}
+        .close-modal { width: 100%; background: var(--accent); color: #000; font-weight: bold; border: none; }
+        .close-modal:hover { background: var(--accent-hover); }
+
+        kbd { background: var(--shortcut-bg); padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 4px; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="space-selector">
+            <button id="btn-balcony" class="active" onclick="setSpace('balcony')">Balcony</button>
+            <button id="btn-terrace" onclick="setSpace('terrace')">Terrace Plan</button>
+        </div>
+
+        <div>
+            <h2>Tools</h2>
+            <div class="row-group">
+                <button id="tool-place" class="active" onclick="setTool('place')">🏗️ Place</button>
+                <button id="tool-erase" onclick="setTool('erase')">🗑️ Erase</button>
+                <button id="tool-select" onclick="setTool('select')">⬚ Select</button>
+            </div>
+            <div class="row-group" style="margin-top: 8px;">
+                <button id="btn-undo" onclick="undo()" disabled>↺ Undo</button>
+                <button id="btn-redo" onclick="redo()" disabled>↻ Redo</button>
+            </div>
+        </div>
+
+        <div id="tile-selection">
+            <h2>Select Tile (Modulo Beige)</h2>
+            <div class="col-group">
+                <button id="tile-40x40" class="active" onclick="setTileSize(40, 40)">40 × 40 cm</button>
+                <button id="tile-40x20" onclick="setTileSize(40, 20)">40 × 20 cm</button>
+                <button id="tile-20x40" onclick="setTileSize(20, 40)">20 × 40 cm</button>
+                <button id="tile-20x20" onclick="setTileSize(20, 20)">20 × 20 cm</button>
+            </div>
+        </div>
+
+        <div id="clipboard-tools" style="display: none;">
+            <h2>Selection Tools</h2>
+            <div class="col-group">
+                <button style="background: var(--accent); color: #000; border: none; font-weight: 600;" onclick="copySelection()">📋 Copy Pattern <kbd>C</kbd></button>
+                <button onclick="clearSelection()">Cancel Selection <kbd>Esc</kbd></button>
+            </div>
+        </div>
+
+        <div id="paste-tools" style="display: none;">
+            <h2>Pasting Pattern</h2>
+            <div class="row-group">
+                <button onclick="transformClipboard('rotate')" title="Rotate 90°">↻ Rot <kbd>R</kbd></button>
+                <button onclick="transformClipboard('flipH')" title="Flip Horizontal">↔ Flip <kbd>H</kbd></button>
+                <button onclick="transformClipboard('flipV')" title="Flip Vertical">↕ Flip <kbd>V</kbd></button>
+            </div>
+            <div class="col-group" style="margin-top: 8px;">
+                <button onclick="saveToPalette()" style="border-color: var(--accent); color: var(--accent);">💾 Save to Palette</button>
+                <button onclick="clearSelection()">Cancel Pasting <kbd>Esc</kbd></button>
+            </div>
+        </div>
+
+        <div class="palette-box">
+            <h2>Saved Patterns (Palette)</h2>
+            <div id="palette-list" class="col-group">
+                <div style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 10px;">No patterns saved yet. Select & Copy a pattern to save it here.</div>
+            </div>
+        </div>
+
+        <div class="inventory">
+            <h2>Total Order Needed</h2>
+            <div style="font-size: 11px; color: var(--accent); margin-top:-8px; margin-bottom: 12px;">(Combines Balcony + Terrace)</div>
+            <div class="inventory-item"><span>40 × 40 cm:</span> <strong id="inv-40x40">0</strong></div>
+            <div class="inventory-item"><span>20 × 40 cm:</span> <strong id="inv-20x40">0</strong></div>
+            <div class="inventory-item"><span>20 × 20 cm:</span> <strong id="inv-20x20">0</strong></div>
+        </div>
+
+        <button class="clear-btn" onclick="clearAll()">Clear Active Floor</button>
+    </div>
+
+    <div class="canvas-container" id="canvas-container">
+        <canvas id="balconyCanvas"></canvas>
+    </div>
+
+    <!-- Help Button & Modal -->
+    <button class="help-btn" onclick="toggleHelp()">?</button>
+    <div class="modal-overlay" id="help-modal" onclick="toggleHelp(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h2>Keyboard Shortcuts</h2>
+            <div class="shortcut-grid">
+                <span>Undo Action</span> <span class="shortcut-key">Cmd/Ctrl + Z</span>
+                <span>Redo Action</span> <span class="shortcut-key">Cmd/Ctrl + Y</span>
+                <span>Tool: Place</span> <span class="shortcut-key">P</span>
+                <span>Tool: Erase</span> <span class="shortcut-key">E</span>
+                <span>Tool: Select</span> <span class="shortcut-key">S</span>
+                <span>Copy Selection</span> <span class="shortcut-key">C</span>
+                <span>Cancel / Deselect</span> <span class="shortcut-key">Esc</span>
+                <span>Rotate Pattern 90°</span> <span class="shortcut-key">R</span>
+                <span>Mirror Pattern Horizontal</span> <span class="shortcut-key">H</span>
+                <span>Mirror Pattern Vertical</span> <span class="shortcut-key">V</span>
+            </div>
+            <button class="close-modal" onclick="toggleHelp()">Close</button>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('balconyCanvas');
+    const ctx = canvas.getContext('2d');
+    const PADDING = 60; 
+    const GRID_SIZE_CM = 20;
+
+    const spaces = {
+        balcony: {
+            width: 411, height: 324, scale: 2.0, 
+            path: [{x:0, y:0}, {x:299.3, y:0}, {x:410.6, y:111.3}, {x:410.6, y:322.4}, {x:0, y:323.8}], holes: []
+        },
+        terrace: {
+            width: 1114, height: 668, scale: 1.1,
+            path: [{x:0, y:0}, {x:696.5, y:0}, {x:696.5, y:290.8}, {x:1113.4, y:290.8}, {x:1113.4, y:668.0}, {x:0, y:668.0}],
+            holes: [[{x:173.2, y:0}, {x:173.2, y:364.4}, {x:475.8, y:364.4}, {x:475.8, y:0}]]
+        }
+    };
+
+    // App State
+    let spaceData = { 
+        balcony: { tiles: [], history: [], future: [] }, 
+        terrace: { tiles: [], history: [], future: [] } 
+    };
+    let globalPalette = [];
+    
+    let currentSpace = 'balcony';
+    let tiles = spaceData[currentSpace].tiles; 
+    let currentTool = 'place'; 
+    let currentTile = { w: 40, h: 40 };
+    let mouse = { x: 0, y: 0, gridX: 0, gridY: 0, isDown: false, actionStarted: false };
+    
+    let selectionBox = null;
+    let selectedTiles = [];
+    let clipboard = [];
+
+    // --- Core Logic ---
+
+    function cmToPx(cm) { return cm * spaces[currentSpace].scale; }
+    function pxToCm(px) { return px / spaces[currentSpace].scale; }
+    function snap(val, step) { return Math.floor(val / step) * step; }
+
+    function getMousePos(evt) {
+        const rect = canvas.getBoundingClientRect();
+        const pxX = evt.clientX - rect.left - PADDING;
+        const pxY = evt.clientY - rect.top - PADDING;
+        
+        mouse.x = pxToCm(pxX);
+        mouse.y = pxToCm(pxY);
+        mouse.gridX = snap(mouse.x, GRID_SIZE_CM);
+        mouse.gridY = snap(mouse.y, GRID_SIZE_CM);
+    }
+
+    function rectIntersect(r1, r2) {
+        return !(r2.x >= r1.x + r1.w || r2.x + r2.w <= r1.x || r2.y >= r1.y + r1.h || r2.y + r2.h <= r1.y);
+    }
+
+    // --- History System (Undo/Redo) ---
+    function saveHistory() {
+        // Push a deep copy of current tiles to history
+        spaceData[currentSpace].history.push(JSON.parse(JSON.stringify(tiles)));
+        // Clearing future (redo stack) on new action
+        spaceData[currentSpace].future = [];
+        updateUndoUI();
+    }
+
+    function undo() {
+        if (spaceData[currentSpace].history.length === 0) return;
+        spaceData[currentSpace].future.push(JSON.parse(JSON.stringify(tiles))); // save current to future
+        tiles = spaceData[currentSpace].history.pop();
+        spaceData[currentSpace].tiles = tiles;
+        updateUndoUI(); updateInventory();
+    }
+
+    function redo() {
+        if (spaceData[currentSpace].future.length === 0) return;
+        spaceData[currentSpace].history.push(JSON.parse(JSON.stringify(tiles))); // save current to history
+        tiles = spaceData[currentSpace].future.pop();
+        spaceData[currentSpace].tiles = tiles;
+        updateUndoUI(); updateInventory();
+    }
+
+    function updateUndoUI() {
+        document.getElementById('btn-undo').disabled = spaceData[currentSpace].history.length === 0;
+        document.getElementById('btn-redo').disabled = spaceData[currentSpace].future.length === 0;
+    }
+
+    // --- Tile Manipulation ---
+    function placeTile(x, y, w, h) {
+        const newTile = { x, y, w, h, id: Math.random().toString(36).substr(2, 9) };
+        const oldLength = tiles.length;
+        tiles = tiles.filter(t => !rectIntersect(t, newTile)); // remove overlaps
+        tiles.push(newTile);
+        spaceData[currentSpace].tiles = tiles; 
+        updateInventory();
+    }
+
+    function removeTileAt(x, y) {
+        const pointRect = { x: x+0.1, y: y+0.1, w: 0.1, h: 0.1 };
+        tiles = tiles.filter(t => !rectIntersect(t, pointRect));
+        spaceData[currentSpace].tiles = tiles; 
+        updateInventory();
+    }
+
+    // --- Input Handling ---
+    canvas.addEventListener('mousedown', (e) => {
+        if(e.button === 2 && currentTool !== 'select') { 
+            saveHistory(); removeTileAt(mouse.x, mouse.y); mouse.actionStarted = true; return; 
+        }
+
+        mouse.isDown = true;
+        mouse.startX = mouse.x; mouse.startY = mouse.y;
+
+        if (currentTool === 'place' || currentTool === 'paste' || currentTool === 'erase') {
+            saveHistory(); // Save state exactly once at the start of drag
+            mouse.actionStarted = true;
+        }
+
+        if (currentTool === 'place') placeTile(mouse.gridX, mouse.gridY, currentTile.w, currentTile.h);
+        else if (currentTool === 'erase') removeTileAt(mouse.x, mouse.y);
+        else if (currentTool === 'select') {
+            selectionBox = { x: mouse.x, y: mouse.y, w: 0, h: 0 };
+            selectedTiles = [];
+        } 
+        else if (currentTool === 'paste') {
+            clipboard.forEach(t => placeTile(mouse.gridX + t.rx, mouse.gridY + t.ry, t.w, t.h));
+        }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        getMousePos(e);
+        if (!mouse.isDown) return;
+
+        if (currentTool === 'place') placeTile(mouse.gridX, mouse.gridY, currentTile.w, currentTile.h);
+        else if (currentTool === 'erase') removeTileAt(mouse.x, mouse.y);
+        else if (currentTool === 'select' && selectionBox) {
+            selectionBox.w = mouse.x - selectionBox.x;
+            selectionBox.h = mouse.y - selectionBox.y;
+            const normBox = {
+                x: selectionBox.w < 0 ? selectionBox.x + selectionBox.w : selectionBox.x,
+                y: selectionBox.h < 0 ? selectionBox.y + selectionBox.h : selectionBox.y,
+                w: Math.abs(selectionBox.w), h: Math.abs(selectionBox.h)
+            };
+            selectedTiles = tiles.filter(t => rectIntersect(t, normBox)).map(t => t.id);
+        }
+    });
+
+    canvas.addEventListener('mouseup', () => { mouse.isDown = false; mouse.actionStarted = false; });
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+    // --- Keyboard Shortcuts ---
+    window.addEventListener('keydown', (e) => {
+        // Prevent shortcuts if typing in an input (if added later)
+        if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        const key = e.key.toLowerCase();
+        
+        // Undo/Redo
+        if (e.ctrlKey || e.metaKey) {
+            if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+            if (key === 'y' || (key === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
+            return;
+        }
+
+        // Tools
+        if (key === 'p') setTool('place');
+        if (key === 'e') setTool('erase');
+        if (key === 's') setTool('select');
+        
+        // Actions
+        if (key === 'escape') clearSelection();
+        if (key === 'c' && currentTool === 'select' && selectedTiles.length > 0) copySelection();
+        
+        // Transforms
+        if (currentTool === 'paste') {
+            if (key === 'r') transformClipboard('rotate');
+            if (key === 'h') transformClipboard('flipH');
+            if (key === 'v') transformClipboard('flipV');
+        }
+    });
+
+    // --- UI Actions & Transforms ---
+    function setSpace(spaceName) {
+        currentSpace = spaceName;
+        tiles = spaceData[currentSpace].tiles;
+        const config = spaces[currentSpace];
+        canvas.width = (config.width * config.scale) + (PADDING * 2);
+        canvas.height = (config.height * config.scale) + (PADDING * 2);
+        
+        document.querySelectorAll('.space-selector button').forEach(b => b.classList.remove('active'));
+        document.getElementById(`btn-${spaceName}`).classList.add('active');
+        
+        clearSelection(); setTool('place'); updateUndoUI(); updateInventory();
+    }
+
+    function setTool(tool) {
+        currentTool = tool;
+        document.querySelectorAll('#tool-place, #tool-erase, #tool-select').forEach(b => b.classList.remove('active'));
+        if(document.getElementById(`tool-${tool}`)) document.getElementById(`tool-${tool}`).classList.add('active');
+        
+        document.getElementById('clipboard-tools').style.display = (tool === 'select') ? 'block' : 'none';
+        document.getElementById('paste-tools').style.display = (tool === 'paste') ? 'block' : 'none';
+        document.getElementById('tile-selection').style.display = (tool === 'select' || tool === 'paste') ? 'none' : 'block';
+        
+        if(tool !== 'select' && tool !== 'paste') { selectedTiles = []; selectionBox = null; clipboard = []; }
+    }
+
+    function setTileSize(w, h) {
+        currentTile = { w, h }; setTool('place');
+        document.querySelectorAll('#tile-selection button').forEach(b => b.classList.remove('active'));
+        const typeStr = w === h ? `${w}x${h}` : (w > h ? '40x20' : '20x40');
+        document.getElementById(`tile-${typeStr}`).classList.add('active');
+    }
+
+    function getClipboardBounds(clip) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        clip.forEach(t => {
+            if (t.rx < minX) minX = t.rx; if (t.ry < minY) minY = t.ry;
+            if (t.rx + t.w > maxX) maxX = t.rx + t.w; if (t.ry + t.h > maxY) maxY = t.ry + t.h;
+        });
+        return { W: maxX - minX, H: maxY - minY };
+    }
+
+    function copySelection() {
+        if (selectedTiles.length === 0) return;
+        const sTiles = tiles.filter(t => selectedTiles.includes(t.id));
+        
+        let minX = Infinity, minY = Infinity;
+        sTiles.forEach(t => { if (t.x < minX) minX = t.x; if (t.y < minY) minY = t.y; });
+        clipboard = sTiles.map(t => ({ rx: t.x - minX, ry: t.y - minY, w: t.w, h: t.h }));
+        
+        selectedTiles = []; selectionBox = null;
+        setTool('paste');
+    }
+
+    function loadFromPalette(index) {
+        clipboard = JSON.parse(JSON.stringify(globalPalette[index].clip)); // deep copy
+        setTool('paste');
+    }
+
+    function transformClipboard(action) {
+        if (!clipboard || clipboard.length === 0) return;
+        const bounds = getClipboardBounds(clipboard);
+        
+        clipboard = clipboard.map(t => {
+            if (action === 'rotate') return { rx: bounds.H - t.ry - t.h, ry: t.rx, w: t.h, h: t.w };
+            if (action === 'flipH') return { rx: bounds.W - t.rx - t.w, ry: t.ry, w: t.w, h: t.h };
+            if (action === 'flipV') return { rx: t.rx, ry: bounds.H - t.ry - t.h, w: t.w, h: t.h };
+            return t;
+        });
+
+        // Re-normalize to ensure top-left is at 0,0 after rotation/flip
+        let minX = Infinity, minY = Infinity;
+        clipboard.forEach(t => { if (t.rx < minX) minX = t.rx; if (t.ry < minY) minY = t.ry; });
+        clipboard.forEach(t => { t.rx -= minX; t.ry -= minY; });
+    }
+
+    function saveToPalette() {
+        if(clipboard.length === 0) return;
+        const name = `Pattern ${globalPalette.length + 1} (${clipboard.length} tiles)`;
+        globalPalette.push({ name, clip: JSON.parse(JSON.stringify(clipboard)) });
+        renderPalette();
+    }
+
+    function deletePaletteItem(index, event) {
+        event.stopPropagation();
+        globalPalette.splice(index, 1);
+        renderPalette();
+        if(currentTool === 'paste') setTool('place'); // Safety fallback
+    }
+
+    function renderPalette() {
+        const list = document.getElementById('palette-list');
+        list.innerHTML = '';
+        if (globalPalette.length === 0) {
+            list.innerHTML = `<div style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 10px;">No patterns saved yet.</div>`;
+            return;
+        }
+        globalPalette.forEach((item, idx) => {
+            const div = document.createElement('div');
+            div.className = 'palette-item';
+            div.onclick = () => loadFromPalette(idx);
+            div.innerHTML = `<span>📋 ${item.name}</span> <button class="palette-del" onclick="deletePaletteItem(${idx}, event)">✖</button>`;
+            list.appendChild(div);
+        });
+    }
+
+    function clearSelection() { setTool('place'); }
+
+    function clearAll() {
+        if(confirm(`Are you sure you want to clear all tiles from the ${currentSpace}?`)) {
+            saveHistory();
+            tiles = []; spaceData[currentSpace].tiles = tiles;
+            updateInventory();
+        }
+    }
+
+    function updateInventory() {
+        let counts = { '40x40': 0, '20x40': 0, '20x20': 0 };
+        ['balcony', 'terrace'].forEach(space => {
+            spaceData[space].tiles.forEach(t => {
+                if (t.w === 40 && t.h === 40) counts['40x40']++;
+                else if (t.w === 20 && t.h === 20) counts['20x20']++;
+                else counts['20x40']++;
+            });
+        });
+        document.getElementById('inv-40x40').innerText = counts['40x40'];
+        document.getElementById('inv-20x40').innerText = counts['20x40'];
+        document.getElementById('inv-20x20').innerText = counts['20x20'];
+    }
+
+    // Modal logic
+    function toggleHelp(e) {
+        const modal = document.getElementById('help-modal');
+        if (modal.style.display === 'flex') modal.style.display = 'none';
+        else modal.style.display = 'flex';
+    }
+
+    // --- Rendering ---
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save(); ctx.translate(PADDING, PADDING);
+
+        const config = spaces[currentSpace];
+
+        // Outline & Holes
+        ctx.beginPath();
+        ctx.moveTo(cmToPx(config.path[0].x), cmToPx(config.path[0].y));
+        for (let i = 1; i < config.path.length; i++) ctx.lineTo(cmToPx(config.path[i].x), cmToPx(config.path[i].y));
+        ctx.closePath();
+        if (config.holes) {
+            config.holes.forEach(hole => {
+                ctx.moveTo(cmToPx(hole[0].x), cmToPx(hole[0].y));
+                for (let i = 1; i < hole.length; i++) ctx.lineTo(cmToPx(hole[i].x), cmToPx(hole[i].y));
+                ctx.closePath();
+            });
+        }
+        ctx.fillStyle = '#f8f6f0'; ctx.fill();
+        ctx.lineWidth = 4; ctx.strokeStyle = '#334155'; ctx.stroke();
+        ctx.clip(); // Restrict everything inside the bounds
+
+        // Grid
+        ctx.strokeStyle = 'rgba(0,0,0,0.06)'; ctx.lineWidth = 1;
+        const maxW = Math.ceil(config.width / GRID_SIZE_CM) * GRID_SIZE_CM;
+        const maxH = Math.ceil(config.height / GRID_SIZE_CM) * GRID_SIZE_CM;
+        for(let x = 0; x <= maxW; x += GRID_SIZE_CM) { ctx.beginPath(); ctx.moveTo(cmToPx(x), 0); ctx.lineTo(cmToPx(x), cmToPx(maxH)); ctx.stroke(); }
+        for(let y = 0; y <= maxH; y += GRID_SIZE_CM) { ctx.beginPath(); ctx.moveTo(0, cmToPx(y)); ctx.lineTo(cmToPx(maxW), cmToPx(y)); ctx.stroke(); }
+
+        // Tiles
+        tiles.forEach(t => {
+            ctx.fillStyle = selectedTiles.includes(t.id) ? '#ffd166' : '#e4dac9';
+            ctx.fillRect(cmToPx(t.x), cmToPx(t.y), cmToPx(t.w), cmToPx(t.h));
+            ctx.strokeStyle = '#bbaea0'; ctx.lineWidth = 1.5;
+            ctx.strokeRect(cmToPx(t.x), cmToPx(t.y), cmToPx(t.w), cmToPx(t.h));
+        });
+
+        ctx.restore(); ctx.save(); ctx.translate(PADDING, PADDING); // unclip overlay
+
+        // Previews
+        if (currentTool === 'place' && !mouse.isDown && mouse.x >= -20 && mouse.y >= -20) {
+            ctx.fillStyle = 'rgba(16, 185, 129, 0.4)';
+            ctx.fillRect(cmToPx(mouse.gridX), cmToPx(mouse.gridY), cmToPx(currentTile.w), cmToPx(currentTile.h));
+        }
+
+        if (currentTool === 'paste' && !mouse.isDown) {
+            ctx.fillStyle = 'rgba(16, 185, 129, 0.4)';
+            clipboard.forEach(t => ctx.fillRect(cmToPx(mouse.gridX + t.rx), cmToPx(mouse.gridY + t.ry), cmToPx(t.w), cmToPx(t.h)));
+        }
+
+        // Selection Box
+        if (currentTool === 'select' && selectionBox) {
+            ctx.fillStyle = 'rgba(59, 130, 246, 0.15)'; ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+            ctx.fillRect(cmToPx(selectionBox.x), cmToPx(selectionBox.y), cmToPx(selectionBox.w), cmToPx(selectionBox.h));
+            ctx.strokeRect(cmToPx(selectionBox.x), cmToPx(selectionBox.y), cmToPx(selectionBox.w), cmToPx(selectionBox.h));
+            ctx.setLineDash([]);
+        }
+
+        ctx.restore();
+        requestAnimationFrame(draw);
+    }
+
+    setSpace('balcony');
+    requestAnimationFrame(draw);
+
+</script>
+</body>
+</html>
