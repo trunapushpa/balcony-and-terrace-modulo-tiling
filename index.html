@@ -31,7 +31,6 @@
             z-index: 10; box-shadow: 4px 0 15px rgba(0,0,0,0.2); box-sizing: border-box; overflow-y: auto;
         }
 
-        /* Webkit Scrollbar for Sidebar */
         .sidebar::-webkit-scrollbar { width: 8px; }
         .sidebar::-webkit-scrollbar-track { background: var(--bg-panel); }
         .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
@@ -62,7 +61,6 @@
         .row-group button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;}
         button:hover { background-color: rgba(255,255,255,0.05); border-color: #475569; }
         button.active { background-color: rgba(16, 185, 129, 0.15); color: var(--accent); border-color: var(--accent); font-weight: 600; }
-        
         button:disabled { opacity: 0.4; cursor: not-allowed; }
 
         .inventory, .palette-box { background-color: rgba(0,0,0,0.15); padding: 16px; border-radius: 8px; border: 1px solid var(--border); }
@@ -234,7 +232,7 @@
     let selectedTiles = [];
     let clipboard = [];
 
-    // --- Core Logic ---
+    // --- Math & Collision Logic ---
 
     function cmToPx(cm) { return cm * spaces[currentSpace].scale; }
     function pxToCm(px) { return px / spaces[currentSpace].scale; }
@@ -255,18 +253,54 @@
         return !(r2.x >= r1.x + r1.w || r2.x + r2.w <= r1.x || r2.y >= r1.y + r1.h || r2.y + r2.h <= r1.y);
     }
 
+    // Ray-casting algorithm to check if a point is inside a polygon
+    function pointInPoly(pt, poly) {
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            let xi = poly[i].x, yi = poly[i].y;
+            let xj = poly[j].x, yj = poly[j].y;
+            let intersect = ((yi > pt.y) != (yj > pt.y)) && (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    }
+
+    // Determine if ANY part of a tile is visibly inside the active floor plan
+    function isTileVisible(tx, ty, tw, th) {
+        const config = spaces[currentSpace];
+        
+        // Sample points across the tile to see if any hit the floor area (step every 5cm)
+        for(let dx = 1; dx < tw; dx += 5) {
+            for(let dy = 1; dy < th; dy += 5) {
+                let pt = {x: tx + dx, y: ty + dy};
+                
+                // Must be inside outer boundary
+                let insideOuter = pointInPoly(pt, config.path);
+                if (insideOuter) {
+                    let insideHole = false;
+                    // Must NOT be inside a hole (e.g. Head Room)
+                    if (config.holes) {
+                        for(let h of config.holes) {
+                            if (pointInPoly(pt, h)) { insideHole = true; break; }
+                        }
+                    }
+                    if (!insideHole) return true; // Found a valid point!
+                }
+            }
+        }
+        return false; // Tile is 100% out of bounds
+    }
+
     // --- History System (Undo/Redo) ---
     function saveHistory() {
-        // Push a deep copy of current tiles to history
         spaceData[currentSpace].history.push(JSON.parse(JSON.stringify(tiles)));
-        // Clearing future (redo stack) on new action
         spaceData[currentSpace].future = [];
         updateUndoUI();
     }
 
     function undo() {
         if (spaceData[currentSpace].history.length === 0) return;
-        spaceData[currentSpace].future.push(JSON.parse(JSON.stringify(tiles))); // save current to future
+        spaceData[currentSpace].future.push(JSON.parse(JSON.stringify(tiles))); 
         tiles = spaceData[currentSpace].history.pop();
         spaceData[currentSpace].tiles = tiles;
         updateUndoUI(); updateInventory();
@@ -274,7 +308,7 @@
 
     function redo() {
         if (spaceData[currentSpace].future.length === 0) return;
-        spaceData[currentSpace].history.push(JSON.parse(JSON.stringify(tiles))); // save current to history
+        spaceData[currentSpace].history.push(JSON.parse(JSON.stringify(tiles))); 
         tiles = spaceData[currentSpace].future.pop();
         spaceData[currentSpace].tiles = tiles;
         updateUndoUI(); updateInventory();
@@ -287,8 +321,10 @@
 
     // --- Tile Manipulation ---
     function placeTile(x, y, w, h) {
+        // Prevent phantom tiles completely completely out of bounds from being added!
+        if (!isTileVisible(x, y, w, h)) return;
+
         const newTile = { x, y, w, h, id: Math.random().toString(36).substr(2, 9) };
-        const oldLength = tiles.length;
         tiles = tiles.filter(t => !rectIntersect(t, newTile)); // remove overlaps
         tiles.push(newTile);
         spaceData[currentSpace].tiles = tiles; 
@@ -312,7 +348,7 @@
         mouse.startX = mouse.x; mouse.startY = mouse.y;
 
         if (currentTool === 'place' || currentTool === 'paste' || currentTool === 'erase') {
-            saveHistory(); // Save state exactly once at the start of drag
+            saveHistory();
             mouse.actionStarted = true;
         }
 
@@ -350,28 +386,21 @@
 
     // --- Keyboard Shortcuts ---
     window.addEventListener('keydown', (e) => {
-        // Prevent shortcuts if typing in an input (if added later)
         if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
         const key = e.key.toLowerCase();
         
-        // Undo/Redo
         if (e.ctrlKey || e.metaKey) {
             if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
             if (key === 'y' || (key === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
             return;
         }
 
-        // Tools
         if (key === 'p') setTool('place');
         if (key === 'e') setTool('erase');
         if (key === 's') setTool('select');
-        
-        // Actions
         if (key === 'escape') clearSelection();
         if (key === 'c' && currentTool === 'select' && selectedTiles.length > 0) copySelection();
         
-        // Transforms
         if (currentTool === 'paste') {
             if (key === 'r') transformClipboard('rotate');
             if (key === 'h') transformClipboard('flipH');
@@ -434,7 +463,7 @@
     }
 
     function loadFromPalette(index) {
-        clipboard = JSON.parse(JSON.stringify(globalPalette[index].clip)); // deep copy
+        clipboard = JSON.parse(JSON.stringify(globalPalette[index].clip)); 
         setTool('paste');
     }
 
@@ -449,7 +478,6 @@
             return t;
         });
 
-        // Re-normalize to ensure top-left is at 0,0 after rotation/flip
         let minX = Infinity, minY = Infinity;
         clipboard.forEach(t => { if (t.rx < minX) minX = t.rx; if (t.ry < minY) minY = t.ry; });
         clipboard.forEach(t => { t.rx -= minX; t.ry -= minY; });
@@ -466,7 +494,7 @@
         event.stopPropagation();
         globalPalette.splice(index, 1);
         renderPalette();
-        if(currentTool === 'paste') setTool('place'); // Safety fallback
+        if(currentTool === 'paste') setTool('place');
     }
 
     function renderPalette() {
@@ -509,7 +537,6 @@
         document.getElementById('inv-20x20').innerText = counts['20x20'];
     }
 
-    // Modal logic
     function toggleHelp(e) {
         const modal = document.getElementById('help-modal');
         if (modal.style.display === 'flex') modal.style.display = 'none';
@@ -523,11 +550,12 @@
 
         const config = spaces[currentSpace];
 
-        // Outline & Holes
+        // 1. Draw Outer Shape & Cut out Holes
         ctx.beginPath();
         ctx.moveTo(cmToPx(config.path[0].x), cmToPx(config.path[0].y));
         for (let i = 1; i < config.path.length; i++) ctx.lineTo(cmToPx(config.path[i].x), cmToPx(config.path[i].y));
         ctx.closePath();
+        
         if (config.holes) {
             config.holes.forEach(hole => {
                 ctx.moveTo(cmToPx(hole[0].x), cmToPx(hole[0].y));
@@ -535,18 +563,21 @@
                 ctx.closePath();
             });
         }
+        
         ctx.fillStyle = '#f8f6f0'; ctx.fill();
         ctx.lineWidth = 4; ctx.strokeStyle = '#334155'; ctx.stroke();
-        ctx.clip(); // Restrict everything inside the bounds
+        
+        // 2. CLIP! Everything drawn after this will be restricted inside the layout boundaries.
+        ctx.clip(); 
 
-        // Grid
+        // 3. Draw Grid Lines
         ctx.strokeStyle = 'rgba(0,0,0,0.06)'; ctx.lineWidth = 1;
         const maxW = Math.ceil(config.width / GRID_SIZE_CM) * GRID_SIZE_CM;
         const maxH = Math.ceil(config.height / GRID_SIZE_CM) * GRID_SIZE_CM;
         for(let x = 0; x <= maxW; x += GRID_SIZE_CM) { ctx.beginPath(); ctx.moveTo(cmToPx(x), 0); ctx.lineTo(cmToPx(x), cmToPx(maxH)); ctx.stroke(); }
         for(let y = 0; y <= maxH; y += GRID_SIZE_CM) { ctx.beginPath(); ctx.moveTo(0, cmToPx(y)); ctx.lineTo(cmToPx(maxW), cmToPx(y)); ctx.stroke(); }
 
-        // Tiles
+        // 4. Draw Placed Tiles
         tiles.forEach(t => {
             ctx.fillStyle = selectedTiles.includes(t.id) ? '#ffd166' : '#e4dac9';
             ctx.fillRect(cmToPx(t.x), cmToPx(t.y), cmToPx(t.w), cmToPx(t.h));
@@ -554,9 +585,7 @@
             ctx.strokeRect(cmToPx(t.x), cmToPx(t.y), cmToPx(t.w), cmToPx(t.h));
         });
 
-        ctx.restore(); ctx.save(); ctx.translate(PADDING, PADDING); // unclip overlay
-
-        // Previews
+        // 5. Draw Previews (Clipped so user sees exactly what will fit!)
         if (currentTool === 'place' && !mouse.isDown && mouse.x >= -20 && mouse.y >= -20) {
             ctx.fillStyle = 'rgba(16, 185, 129, 0.4)';
             ctx.fillRect(cmToPx(mouse.gridX), cmToPx(mouse.gridY), cmToPx(currentTile.w), cmToPx(currentTile.h));
@@ -567,7 +596,12 @@
             clipboard.forEach(t => ctx.fillRect(cmToPx(mouse.gridX + t.rx), cmToPx(mouse.gridY + t.ry), cmToPx(t.w), cmToPx(t.h)));
         }
 
-        // Selection Box
+        // 6. Restore Canvas (Un-clip)
+        ctx.restore(); 
+        ctx.save(); 
+        ctx.translate(PADDING, PADDING);
+
+        // 7. Draw Selection Box OUTSIDE the clip so the user can drag their mouse anywhere freely
         if (currentTool === 'select' && selectionBox) {
             ctx.fillStyle = 'rgba(59, 130, 246, 0.15)'; ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
             ctx.fillRect(cmToPx(selectionBox.x), cmToPx(selectionBox.y), cmToPx(selectionBox.w), cmToPx(selectionBox.h));
