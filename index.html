@@ -6,17 +6,10 @@
     <title>Terrace & Balcony Tiling Planner</title>
     <style>
         :root {
-            --bg-app: #0f172a;
-            --bg-panel: #1e293b;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --accent: #10b981;
-            --accent-hover: #059669;
-            --border: #334155;
-            --danger: #ef4444;
-            --danger-hover: #dc2626;
-            --canvas-bg: #ffffff;
-            --shortcut-bg: #334155;
+            --bg-app: #0f172a; --bg-panel: #1e293b; --text-main: #f8fafc;
+            --text-muted: #94a3b8; --accent: #10b981; --accent-hover: #059669;
+            --border: #334155; --danger: #ef4444; --danger-hover: #dc2626;
+            --canvas-bg: #ffffff; --shortcut-bg: #334155;
         }
 
         body {
@@ -28,7 +21,7 @@
         .sidebar {
             width: 360px; background-color: var(--bg-panel); border-right: 1px solid var(--border);
             padding: 24px; display: flex; flex-direction: column; gap: 20px;
-            z-index: 10; box-shadow: 4px 0 15px rgba(0,0,0,0.2); box-sizing: border-box; overflow-y: auto;
+            z-index: 10; box-shadow: 4px 0 15px rgba(0,0,0,0.2); box-sizing: border-box; overflow-y: auto; flex-shrink: 0;
         }
 
         .sidebar::-webkit-scrollbar { width: 8px; }
@@ -77,7 +70,6 @@
         .clear-btn { background-color: var(--danger); color: white; border: none; margin-top: 10px; padding: 14px; font-weight: 600; }
         .clear-btn:hover { background-color: var(--danger-hover); }
 
-        /* Help Button & Modal */
         .help-btn {
             position: fixed; bottom: 20px; right: 20px; width: 44px; height: 44px; border-radius: 50%;
             background-color: var(--bg-panel); color: var(--accent); border: 2px solid var(--border);
@@ -155,11 +147,20 @@
         </div>
 
         <div class="palette-box">
-            <h2>Saved Patterns (Palette)</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h2 style="margin: 0;">Saved Patterns</h2>
+                <div style="display: flex; gap: 6px;">
+                    <button onclick="importPalette()" style="padding: 4px 8px; font-size: 11px; flex: initial;" title="Import Palette File">📥 Import</button>
+                    <button onclick="exportPalette()" style="padding: 4px 8px; font-size: 11px; flex: initial;" title="Export Palette File">📤 Export</button>
+                </div>
+            </div>
             <div id="palette-list" class="col-group">
                 <div style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 10px;">No patterns saved yet. Select & Copy a pattern to save it here.</div>
             </div>
         </div>
+
+        <!-- Hidden input for file importing -->
+        <input type="file" id="import-file" style="display: none;" accept=".json" onchange="handleImport(event)">
 
         <div class="inventory">
             <h2>Total Order Needed</h2>
@@ -200,7 +201,9 @@
 <script>
     const canvas = document.getElementById('balconyCanvas');
     const ctx = canvas.getContext('2d');
-    const PADDING = 60; 
+    
+    // Massive padding gives you infinite room outside the walls to drag large modules
+    const PADDING = 400; 
     const GRID_SIZE_CM = 20;
 
     const spaces = {
@@ -253,7 +256,6 @@
         return !(r2.x >= r1.x + r1.w || r2.x + r2.w <= r1.x || r2.y >= r1.y + r1.h || r2.y + r2.h <= r1.y);
     }
 
-    // Ray-casting algorithm to check if a point is inside a polygon
     function pointInPoly(pt, poly) {
         let inside = false;
         for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -265,30 +267,21 @@
         return inside;
     }
 
-    // Determine if ANY part of a tile is visibly inside the active floor plan
     function isTileVisible(tx, ty, tw, th) {
         const config = spaces[currentSpace];
-        
-        // Sample points across the tile to see if any hit the floor area (step every 5cm)
         for(let dx = 1; dx < tw; dx += 5) {
             for(let dy = 1; dy < th; dy += 5) {
                 let pt = {x: tx + dx, y: ty + dy};
-                
-                // Must be inside outer boundary
-                let insideOuter = pointInPoly(pt, config.path);
-                if (insideOuter) {
+                if (pointInPoly(pt, config.path)) {
                     let insideHole = false;
-                    // Must NOT be inside a hole (e.g. Head Room)
                     if (config.holes) {
-                        for(let h of config.holes) {
-                            if (pointInPoly(pt, h)) { insideHole = true; break; }
-                        }
+                        for(let h of config.holes) if (pointInPoly(pt, h)) { insideHole = true; break; }
                     }
-                    if (!insideHole) return true; // Found a valid point!
+                    if (!insideHole) return true; 
                 }
             }
         }
-        return false; // Tile is 100% out of bounds
+        return false; 
     }
 
     // --- History System (Undo/Redo) ---
@@ -321,11 +314,9 @@
 
     // --- Tile Manipulation ---
     function placeTile(x, y, w, h) {
-        // Prevent phantom tiles completely completely out of bounds from being added!
         if (!isTileVisible(x, y, w, h)) return;
-
         const newTile = { x, y, w, h, id: Math.random().toString(36).substr(2, 9) };
-        tiles = tiles.filter(t => !rectIntersect(t, newTile)); // remove overlaps
+        tiles = tiles.filter(t => !rectIntersect(t, newTile)); 
         tiles.push(newTile);
         spaceData[currentSpace].tiles = tiles; 
         updateInventory();
@@ -344,23 +335,16 @@
             saveHistory(); removeTileAt(mouse.x, mouse.y); mouse.actionStarted = true; return; 
         }
 
-        mouse.isDown = true;
-        mouse.startX = mouse.x; mouse.startY = mouse.y;
+        mouse.isDown = true; mouse.startX = mouse.x; mouse.startY = mouse.y;
 
         if (currentTool === 'place' || currentTool === 'paste' || currentTool === 'erase') {
-            saveHistory();
-            mouse.actionStarted = true;
+            saveHistory(); mouse.actionStarted = true;
         }
 
         if (currentTool === 'place') placeTile(mouse.gridX, mouse.gridY, currentTile.w, currentTile.h);
         else if (currentTool === 'erase') removeTileAt(mouse.x, mouse.y);
-        else if (currentTool === 'select') {
-            selectionBox = { x: mouse.x, y: mouse.y, w: 0, h: 0 };
-            selectedTiles = [];
-        } 
-        else if (currentTool === 'paste') {
-            clipboard.forEach(t => placeTile(mouse.gridX + t.rx, mouse.gridY + t.ry, t.w, t.h));
-        }
+        else if (currentTool === 'select') { selectionBox = { x: mouse.x, y: mouse.y, w: 0, h: 0 }; selectedTiles = []; } 
+        else if (currentTool === 'paste') clipboard.forEach(t => placeTile(mouse.gridX + t.rx, mouse.gridY + t.ry, t.w, t.h));
     });
 
     canvas.addEventListener('mousemove', (e) => {
@@ -384,7 +368,6 @@
     canvas.addEventListener('mouseup', () => { mouse.isDown = false; mouse.actionStarted = false; });
     canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-    // --- Keyboard Shortcuts ---
     window.addEventListener('keydown', (e) => {
         if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
         const key = e.key.toLowerCase();
@@ -408,17 +391,70 @@
         }
     });
 
+    // --- Local Storage & File I/O ---
+    function savePaletteLocal() {
+        localStorage.setItem('moduloTilingPalette', JSON.stringify(globalPalette));
+    }
+
+    function loadPaletteLocal() {
+        const saved = localStorage.getItem('moduloTilingPalette');
+        if (saved) {
+            try { globalPalette = JSON.parse(saved); renderPalette(); } 
+            catch(e) { console.error("Could not parse saved palette", e); }
+        }
+    }
+
+    function exportPalette() {
+        if (globalPalette.length === 0) { alert("Palette is empty. Nothing to export."); return; }
+        const dataStr = JSON.stringify(globalPalette, null, 2);
+        const blob = new Blob([dataStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = "modulo_tiling_palette.json";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function importPalette() { document.getElementById('import-file').click(); }
+
+    function handleImport(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const imported = JSON.parse(e.target.result);
+                if (Array.isArray(imported)) {
+                    globalPalette = globalPalette.concat(imported);
+                    savePaletteLocal(); renderPalette();
+                    alert("Palette imported successfully!");
+                } else alert("Invalid palette file format.");
+            } catch (err) { alert("Error reading file."); }
+            event.target.value = ''; 
+        };
+        reader.readAsText(file);
+    }
+
     // --- UI Actions & Transforms ---
     function setSpace(spaceName) {
         currentSpace = spaceName;
         tiles = spaceData[currentSpace].tiles;
         const config = spaces[currentSpace];
+        
+        // Massive padding built-in to give space for off-screen patterns
         canvas.width = (config.width * config.scale) + (PADDING * 2);
         canvas.height = (config.height * config.scale) + (PADDING * 2);
         
         document.querySelectorAll('.space-selector button').forEach(b => b.classList.remove('active'));
         document.getElementById(`btn-${spaceName}`).classList.add('active');
         
+        // Center the scroll view
+        const container = document.getElementById('canvas-container');
+        setTimeout(() => {
+            container.scrollTop = (canvas.height - container.clientHeight) / 2;
+            container.scrollLeft = (canvas.width - container.clientWidth) / 2;
+        }, 10);
+
         clearSelection(); setTool('place'); updateUndoUI(); updateInventory();
     }
 
@@ -447,16 +483,26 @@
             if (t.rx < minX) minX = t.rx; if (t.ry < minY) minY = t.ry;
             if (t.rx + t.w > maxX) maxX = t.rx + t.w; if (t.ry + t.h > maxY) maxY = t.ry + t.h;
         });
-        return { W: maxX - minX, H: maxY - minY };
+        return { minX, minY, maxX, maxY, W: maxX - minX, H: maxY - minY };
     }
 
     function copySelection() {
         if (selectedTiles.length === 0) return;
         const sTiles = tiles.filter(t => selectedTiles.includes(t.id));
         
-        let minX = Infinity, minY = Infinity;
-        sTiles.forEach(t => { if (t.x < minX) minX = t.x; if (t.y < minY) minY = t.y; });
-        clipboard = sTiles.map(t => ({ rx: t.x - minX, ry: t.y - minY, w: t.w, h: t.h }));
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        sTiles.forEach(t => { 
+            if (t.x < minX) minX = t.x; 
+            if (t.y < minY) minY = t.y; 
+            if (t.x + t.w > maxX) maxX = t.x + t.w; 
+            if (t.y + t.h > maxY) maxY = t.y + t.h; 
+        });
+
+        // Anchor the copy explicitly to the CENTER of the pattern to make edge placements simple
+        let cx = snap(minX + (maxX - minX) / 2, GRID_SIZE_CM);
+        let cy = snap(minY + (maxY - minY) / 2, GRID_SIZE_CM);
+
+        clipboard = sTiles.map(t => ({ rx: t.x - cx, ry: t.y - cy, w: t.w, h: t.h }));
         
         selectedTiles = []; selectionBox = null;
         setTool('paste');
@@ -469,31 +515,46 @@
 
     function transformClipboard(action) {
         if (!clipboard || clipboard.length === 0) return;
-        const bounds = getClipboardBounds(clipboard);
         
-        clipboard = clipboard.map(t => {
+        // 1. Shift to zero-based coordinates to rotate easily
+        let bounds = getClipboardBounds(clipboard);
+        let tempClip = clipboard.map(t => ({ rx: t.rx - bounds.minX, ry: t.ry - bounds.minY, w: t.w, h: t.h }));
+        bounds = getClipboardBounds(tempClip);
+        
+        // 2. Perform rotation / flip
+        tempClip = tempClip.map(t => {
             if (action === 'rotate') return { rx: bounds.H - t.ry - t.h, ry: t.rx, w: t.h, h: t.w };
             if (action === 'flipH') return { rx: bounds.W - t.rx - t.w, ry: t.ry, w: t.w, h: t.h };
             if (action === 'flipV') return { rx: t.rx, ry: bounds.H - t.ry - t.h, w: t.w, h: t.h };
             return t;
         });
 
-        let minX = Infinity, minY = Infinity;
-        clipboard.forEach(t => { if (t.rx < minX) minX = t.rx; if (t.ry < minY) minY = t.ry; });
-        clipboard.forEach(t => { t.rx -= minX; t.ry -= minY; });
+        // 3. Re-calculate the new bounding box and snap to CENTER anchor again
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        tempClip.forEach(t => { 
+            if (t.rx < minX) minX = t.rx; 
+            if (t.ry < minY) minY = t.ry; 
+            if (t.rx + t.w > maxX) maxX = t.rx + t.w; 
+            if (t.ry + t.h > maxY) maxY = t.ry + t.h; 
+        });
+        
+        let cx = snap(minX + (maxX - minX) / 2, GRID_SIZE_CM);
+        let cy = snap(minY + (maxY - minY) / 2, GRID_SIZE_CM);
+        
+        clipboard = tempClip.map(t => ({ rx: t.rx - cx, ry: t.ry - cy, w: t.w, h: t.h }));
     }
 
     function saveToPalette() {
         if(clipboard.length === 0) return;
         const name = `Pattern ${globalPalette.length + 1} (${clipboard.length} tiles)`;
         globalPalette.push({ name, clip: JSON.parse(JSON.stringify(clipboard)) });
-        renderPalette();
+        savePaletteLocal(); renderPalette();
     }
 
     function deletePaletteItem(index, event) {
         event.stopPropagation();
         globalPalette.splice(index, 1);
-        renderPalette();
+        savePaletteLocal(); renderPalette();
         if(currentTool === 'paste') setTool('place');
     }
 
@@ -501,13 +562,12 @@
         const list = document.getElementById('palette-list');
         list.innerHTML = '';
         if (globalPalette.length === 0) {
-            list.innerHTML = `<div style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 10px;">No patterns saved yet.</div>`;
+            list.innerHTML = `<div style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 10px;">No patterns saved yet. Select & Copy a pattern to save it here.</div>`;
             return;
         }
         globalPalette.forEach((item, idx) => {
             const div = document.createElement('div');
-            div.className = 'palette-item';
-            div.onclick = () => loadFromPalette(idx);
+            div.className = 'palette-item'; div.onclick = () => loadFromPalette(idx);
             div.innerHTML = `<span>📋 ${item.name}</span> <button class="palette-del" onclick="deletePaletteItem(${idx}, event)">✖</button>`;
             list.appendChild(div);
         });
@@ -550,7 +610,7 @@
 
         const config = spaces[currentSpace];
 
-        // 1. Draw Outer Shape & Cut out Holes
+        // 1. Draw Outer Boundary & Cut out Holes
         ctx.beginPath();
         ctx.moveTo(cmToPx(config.path[0].x), cmToPx(config.path[0].y));
         for (let i = 1; i < config.path.length; i++) ctx.lineTo(cmToPx(config.path[i].x), cmToPx(config.path[i].y));
@@ -567,17 +627,17 @@
         ctx.fillStyle = '#f8f6f0'; ctx.fill();
         ctx.lineWidth = 4; ctx.strokeStyle = '#334155'; ctx.stroke();
         
-        // 2. CLIP! Everything drawn after this will be restricted inside the layout boundaries.
+        // 2. Apply strict boundary clipping for the physical tiles
         ctx.clip(); 
 
-        // 3. Draw Grid Lines
+        // 3. Draw Grid Lines (Only inside the clipped area)
         ctx.strokeStyle = 'rgba(0,0,0,0.06)'; ctx.lineWidth = 1;
         const maxW = Math.ceil(config.width / GRID_SIZE_CM) * GRID_SIZE_CM;
         const maxH = Math.ceil(config.height / GRID_SIZE_CM) * GRID_SIZE_CM;
         for(let x = 0; x <= maxW; x += GRID_SIZE_CM) { ctx.beginPath(); ctx.moveTo(cmToPx(x), 0); ctx.lineTo(cmToPx(x), cmToPx(maxH)); ctx.stroke(); }
         for(let y = 0; y <= maxH; y += GRID_SIZE_CM) { ctx.beginPath(); ctx.moveTo(0, cmToPx(y)); ctx.lineTo(cmToPx(maxW), cmToPx(y)); ctx.stroke(); }
 
-        // 4. Draw Placed Tiles
+        // 4. Render Layout
         tiles.forEach(t => {
             ctx.fillStyle = selectedTiles.includes(t.id) ? '#ffd166' : '#e4dac9';
             ctx.fillRect(cmToPx(t.x), cmToPx(t.y), cmToPx(t.w), cmToPx(t.h));
@@ -585,7 +645,7 @@
             ctx.strokeRect(cmToPx(t.x), cmToPx(t.y), cmToPx(t.w), cmToPx(t.h));
         });
 
-        // 5. Draw Previews (Clipped so user sees exactly what will fit!)
+        // 5. Render previews (Clipped so you see exactly what drops)
         if (currentTool === 'place' && !mouse.isDown && mouse.x >= -20 && mouse.y >= -20) {
             ctx.fillStyle = 'rgba(16, 185, 129, 0.4)';
             ctx.fillRect(cmToPx(mouse.gridX), cmToPx(mouse.gridY), cmToPx(currentTile.w), cmToPx(currentTile.h));
@@ -596,12 +656,10 @@
             clipboard.forEach(t => ctx.fillRect(cmToPx(mouse.gridX + t.rx), cmToPx(mouse.gridY + t.ry), cmToPx(t.w), cmToPx(t.h)));
         }
 
-        // 6. Restore Canvas (Un-clip)
-        ctx.restore(); 
-        ctx.save(); 
-        ctx.translate(PADDING, PADDING);
+        // 6. Release Clip mask for free-form UI tools
+        ctx.restore(); ctx.save(); ctx.translate(PADDING, PADDING);
 
-        // 7. Draw Selection Box OUTSIDE the clip so the user can drag their mouse anywhere freely
+        // 7. Draw the Selection Box across infinite space
         if (currentTool === 'select' && selectionBox) {
             ctx.fillStyle = 'rgba(59, 130, 246, 0.15)'; ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
             ctx.fillRect(cmToPx(selectionBox.x), cmToPx(selectionBox.y), cmToPx(selectionBox.w), cmToPx(selectionBox.h));
@@ -613,6 +671,8 @@
         requestAnimationFrame(draw);
     }
 
+    // Boot App
+    loadPaletteLocal();
     setSpace('balcony');
     requestAnimationFrame(draw);
 
