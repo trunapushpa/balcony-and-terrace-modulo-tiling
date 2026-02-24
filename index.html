@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terrace & Balcony Tiling Planner</title>
+    <title>Tiling Planner: Balcony, Terrace & Parking</title>
     <style>
         :root {
             --bg-app: #0f172a; --bg-panel: #1e293b; --text-main: #f8fafc;
@@ -40,8 +40,8 @@
 
         h2 { margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.5px; }
         
-        .space-selector { display: flex; background-color: rgba(0,0,0,0.2); padding: 6px; border-radius: 8px; border: 1px solid var(--border); }
-        .space-selector button { flex: 1; border: none; padding: 10px; border-radius: 6px; background: transparent; color: var(--text-muted); font-weight: 600; transition: all 0.2s; }
+        .space-selector { display: flex; background-color: rgba(0,0,0,0.2); padding: 6px; border-radius: 8px; border: 1px solid var(--border); gap: 4px; }
+        .space-selector button { flex: 1; border: none; padding: 10px 4px; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 13px; font-weight: 600; transition: all 0.2s; }
         .space-selector button.active { background-color: var(--bg-panel); color: var(--text-main); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 
         .row-group { display: flex; gap: 8px; }
@@ -99,7 +99,8 @@
     <div class="sidebar">
         <div class="space-selector">
             <button id="btn-balcony" class="active" onclick="setSpace('balcony')">Balcony</button>
-            <button id="btn-terrace" onclick="setSpace('terrace')">Terrace Plan</button>
+            <button id="btn-terrace" onclick="setSpace('terrace')">Terrace</button>
+            <button id="btn-parking" onclick="setSpace('parking')">Parking</button>
         </div>
 
         <div>
@@ -164,7 +165,7 @@
 
         <div class="inventory">
             <h2>Total Order Needed</h2>
-            <div style="font-size: 11px; color: var(--accent); margin-top:-8px; margin-bottom: 12px;">(Combines Balcony + Terrace)</div>
+            <div style="font-size: 11px; color: var(--accent); margin-top:-8px; margin-bottom: 12px;">(Balcony + Terrace + Parking)</div>
             <div class="inventory-item"><span>40 × 40 cm:</span> <strong id="inv-40x40">0</strong></div>
             <div class="inventory-item"><span>20 × 40 cm:</span> <strong id="inv-20x40">0</strong></div>
             <div class="inventory-item"><span>20 × 20 cm:</span> <strong id="inv-20x20">0</strong></div>
@@ -215,13 +216,20 @@
             width: 1114, height: 668, scale: 1.1,
             path: [{x:0, y:0}, {x:696.5, y:0}, {x:696.5, y:290.8}, {x:1113.4, y:290.8}, {x:1113.4, y:668.0}, {x:0, y:668.0}],
             holes: [[{x:173.2, y:0}, {x:173.2, y:364.4}, {x:475.8, y:364.4}, {x:475.8, y:0}]]
+        },
+        parking: {
+            width: 502, height: 283, scale: 1.8, 
+            // Simple rectangle based on 5.02m x 2.83m (16'5" x 9'4")
+            path: [{x:0, y:0}, {x:502, y:0}, {x:502, y:283}, {x:0, y:283}], 
+            holes: []
         }
     };
 
     // App State
     let spaceData = { 
         balcony: { tiles: [], history: [], future: [] }, 
-        terrace: { tiles: [], history: [], future: [] } 
+        terrace: { tiles: [], history: [], future: [] },
+        parking: { tiles: [], history: [], future: [] } 
     };
     let globalPalette = [];
     
@@ -585,7 +593,7 @@
 
     function updateInventory() {
         let counts = { '40x40': 0, '20x40': 0, '20x20': 0 };
-        ['balcony', 'terrace'].forEach(space => {
+        ['balcony', 'terrace', 'parking'].forEach(space => {
             spaceData[space].tiles.forEach(t => {
                 if (t.w === 40 && t.h === 40) counts['40x40']++;
                 else if (t.w === 20 && t.h === 20) counts['20x20']++;
